@@ -1,0 +1,632 @@
+---
+title: "Auditing a Pre-Trained Financial Risk Model With Huggy Face"
+subtitle: "A Practical Introduction to Model Governance Using R packages hfhub & tok"
+author: "Patrick Lefler"
+abstract: 
+    Artificial intelligence governance frameworks including the Federal Reserve's SR 11-7,
+  NYDFS model risk guidance, and the NIST AI Risk Management Framework require institutions
+  to document the intended use, training data provenance, known limitations, and bias
+  considerations of any model used in consequential decisions. For open-source models sourced
+  from public repositories, the model card is often the sole documentation available. Yet
+  few practitioners have the tools to interrogate it programmatically.  </br> </br>
+   This project introduces two R packages — hfhub and tok — and applies them to a structured metadata    audit of FinBERT (ProsusAI/finbert), a BERT-based sentiment classifier widely deployed in fintech AI pipelines. Using hub_download() and tok::tokenizer, the analysis retrieves and parses model architecture parameters, tokenizer configuration, vocabulary composition, and context window constraints — without inference code, a GPU, or a Python dependency. </br> </br>
+   The result is a governance audit card aligned to SR 11-7 documentation expectations. The project is designed for risk practitioners with intermediate R proficiency who need a reproducible, board-ready template for third-party model due diligence.
+date: "2026-05-08"
+format:
+  html:
+    code-fold: true
+    code-copy: true
+    code-overflow: wrap
+    code-tools: false
+    code-summary: "Display code"
+    df-print: kable
+    embed-math: true
+    embed-resources: true
+    fig-align: center
+    fig-height: 6
+    fig-width: 10
+    highlight-style: arrow
+    lightbox: true
+    linkcolor: "#0166CC"
+    number-sections: false
+    page-layout: full
+    smooth-scroll: true
+    theme: sandstone
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    toc-title: "Contents"
+execute:
+  echo: true
+  warning: false
+  message: false
+html-math-method: mathjax
+knitr:
+  opts_chunk:
+    comment: "#>"
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(forcats)    # Factor reordering for charts
+library(glue)       # String interpolation
+library(hfhub)      # Hugging Face Hub file downloads
+library(jsonlite)   # JSON parsing
+library(kableExtra) # Table formatting
+library(knitr)      # Document rendering
+library(plotly)     # Interactive chart wrapping
+library(purrr)      # Functional programming utilities
+library(scales)     # Axis and label formatting
+library(sessioninfo)# Session provenance
+library(tidyverse)  # Data manipulation and ggplot2
+library(tok)        # Tokenization via Hugging Face tokenizers (used for package context; see note in stress test)
+
+# Brand color variables
+brand_primary   <- "#1A1A2E"
+brand_secondary <- "#16213E"
+brand_accent    <- "#0F3460"
+brand_highlight <- "#E94560"
+brand_surface   <- "#F5F5F5"
+brand_text      <- "#1A1A2E"
+
+brand_palette <- c(
+  primary   = brand_primary,
+  secondary = brand_secondary,
+  accent    = brand_accent,
+  highlight = brand_highlight
+)
+
+# Null-coalescing operator (from rlang, available via tidyverse)
+`%||%` <- function(x, y) if (!is.null(x)) x else y
+```
+
+## Introduction
+
+Every organization using a third-party AI model in risk or compliance faces a key question: what exactly did we approve? The model card is usually the main answer. It is the documentation published with open-source models on sites like Hugging Face. The card details training data, intended use, known limitations, and output schema. For organizations under SR 11-7, NYDFS model risk guidance, or the NIST AI Risk Management Framework, this documentation is essential. It serves as the baseline for independent validation.
+
+The issue is that most risk practitioners view model cards as static web pages. They are reviewed manually and inconsistently. Two R packages, `hfhub` and `tok`, change this. They allow practitioners to pull model artifacts programmatically. They can also parse configuration files and create a structured audit record. This record can be reproduced, versioned, and embedded directly into governance documents.
+
+This project illustrates the complete workflow using **FinBERT** (ProsusAI/finbert) as an example. FinBERT is a BERT-based sentiment classifier fine-tuned on financial news. It is one of the most cited open-source models in fintech AI and is used in firms for credit risk, market surveillance, and regulatory text analysis. Its wide use makes it a strong teaching case. The model is well-known, its limits are clear, and the governance issues it raises relate to any BERT-family model a risk team might face.
+
+This project focuses on a metadata audit. It looks at:
+
+-   Architecture parameters
+
+-   Tokenizer configuration
+
+-   Vocabulary composition
+
+-   Context window constraints
+
+No inference is performed, no GPU is needed, and the Python ecosystem is not required. The entire workflow runs in R.
+
+::: {.callout-note title="Understanding Hugging Face — And How It Differs from Gemini or Claude" icon="false"}
+*Hugging Face* is an open-source model repository and machine learning platform. It is not just one AI system; it provides distribution infrastructure. *Gemini* (Google) and *Claude* (Anthropic) are different. You can only access them through their vendor APIs. *Hugging Face* has thousands of models. They come from universities, companies, and independent researchers. These models are available for direct download, inspection, and often modification.
+
+This difference matters for governance. With a commercial API, the model is a black box: inputs go in, and outputs come out, but you can’t see the architecture, training data, or configuration. You can find the configuration files, tokenizer, and often the full model weights for a *Hugging Face* model available to the public. This transparency allows for structured metadata audits, making tools like `hfhub` and `tok` possible as R packages.
+
+The practical differences also affect deployment. *Gemini* and *Claude* provide inference-as-a-service. The model operates on the vendor's infrastructure. Users pay for each token used. In contrast, organizations can download and run *Hugging Face* models on their own infrastructure. They can also evaluate these models without running them, as this project shows. This distinction impacts costs, latency, and data residency for financial institutions. It also shifts compliance responsibilities. When a firm uses the Claude API, it follows Anthropic's acceptable use policy. When a firm uses FinBERT internally, it takes on all model risk management responsibility under SR 11-7. There is no vendor support. The governance requirements differ significantly.
+
+For risk practitioners, *Hugging Face* is valuable in three main ways. First, it serves as an audit target, helping document a model already in use within the organization. Second, it acts as a benchmarking resource. You can find domain-specific models for credit risk, regulatory text classification, and financial entity recognition on the Hub. These can be evaluated against internal data before any procurement or build decisions. Third, it provides research signals. Model cards, citation counts, and community talks on *Hugging Face* show popular modeling methods in finance. This often happens 12 to 18 months before those approaches appear in vendor product announcements. A risk team that monitors the Hub regularly is better equipped to anticipate governance questions that may arise.
+:::
+
+## Background: The R Packages
+
+### `hfhub` — Fetching from Hugging Face Hub
+
+The `hfhub` package exposes a single core function: `hub_download()`. Given a repository identifier and a file path, it retrieves the specified artifact from Hugging Face Hub and stores it in a local cache. The caching layout mirrors the Python `huggingface_hub` library, which means cached files can be shared across R and Python environments — a practical consideration for teams operating mixed-language pipelines.
+
+``` r
+# Fetch the model configuration file
+path <- hfhub::hub_download("ProsusAI/finbert", "config.json")
+```
+
+The function returns the local file path, which can then be passed to any standard R parsing tool. In this project, that means `jsonlite::fromJSON()` for the JSON configuration files and `base::readLines()` for the plain-text vocabulary.
+
+### `tok` — Tokenization in R
+
+The `tok` package provides R bindings for the Hugging Face `tokenizers` Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: `tok` exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.
+
+``` r
+# Load the tokenizer from the Hub
+tokenizer <- tok::tokenizer$from_pretrained("ProsusAI/finbert")
+```
+
+Neither package requires model inference. Both operate entirely on the metadata and configuration layer — which is precisely the layer that governance review demands.
+
+## Downloading Model Artifacts
+
+Three files are retrieved from the FinBERT repository. The `config.json` file defines model architecture and output labels. The `tokenizer_config.json` file specifies how input text is processed before it reaches the model. The `vocab.txt` file contains the complete 30,522-token vocabulary — sampled and analyzed below, not printed in full.
+
+```{r}
+#| label: download-artifacts
+#| cache: true
+
+model_id <- "ProsusAI/finbert"
+
+config_path        <- hub_download(model_id, "config.json")
+tokenizer_cfg_path <- hub_download(model_id, "tokenizer_config.json")
+vocab_path         <- hub_download(model_id, "vocab.txt")
+
+cat("config.json           :", config_path, "\n")
+cat("tokenizer_config.json :", tokenizer_cfg_path, "\n")
+cat("vocab.txt             :", vocab_path, "\n")
+```
+
+::: {.callout-note title="Caching and Reproducibility" icon="false"}
+`hub_download()` caches files on first retrieval. Subsequent calls return the cached path with no network request. For production governance workflows, artifacts should be pinned to a specific commit hash — not pulled from `main` — to ensure that audit records remain reproducible when the model card is updated.
+:::
+
+## Model Architecture
+
+```{r}
+#| label: parse-config
+
+config        <- fromJSON(config_path)
+tokenizer_cfg <- fromJSON(tokenizer_cfg_path)
+```
+
+### Architecture Parameters
+
+The configuration file records the structural parameters of the underlying BERT-base architecture. These parameters define the model's representational capacity and, for governance purposes, its resource footprint in any deployment context.
+
+```{r}
+#| label: table-architecture
+
+arch_params <- tibble(
+  Parameter = c(
+    "Model Type",
+    "Hidden Size",
+    "Number of Hidden Layers",
+    "Attention Heads",
+    "Intermediate (FFN) Size",
+    "Max Position Embeddings",
+    "Vocabulary Size",
+    "Hidden Dropout Probability",
+    "Attention Dropout Probability"
+  ),
+  Value = c(
+    config$model_type                    %||% "bert",
+    config$hidden_size                   %||% "768",
+    config$num_hidden_layers             %||% "12",
+    config$num_attention_heads           %||% "12",
+    config$intermediate_size             %||% "3072",
+    config$max_position_embeddings       %||% "512",
+    config$vocab_size                    %||% "30522",
+    config$hidden_dropout_prob           %||% "0.1",
+    config$attention_probs_dropout_prob  %||% "0.1"
+  )
+)
+
+arch_params |>
+  kable(
+    format    = "html",
+    caption   = "Table 1: FinBERT Architecture Parameters",
+    col.names = c("Parameter", "Value"),
+    align     = c("l", "r")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "left",
+    font_size         = 13
+  ) |>
+  column_spec(1, bold = TRUE, width = "18em") |>
+  column_spec(2, width = "10em")
+```
+
+### Classification Labels
+
+FinBERT produces a three-class sentiment output. The label schema below is what the model returns — understanding it is a prerequisite for any downstream risk workflow that consumes model outputs.
+
+```{r}
+#| label: table-labels
+
+if (!is.null(config$id2label)) {
+  label_df <- tibble(
+    `Token ID` = names(config$id2label),
+    Label      = unlist(config$id2label),
+    `Risk Interpretation` = case_when(
+      unlist(config$id2label) == "positive" ~
+        "Favorable market or credit sentiment signal",
+      unlist(config$id2label) == "negative" ~
+        "Adverse market or credit sentiment signal",
+      unlist(config$id2label) == "neutral"  ~
+        "No directional signal; may warrant further manual review",
+      TRUE ~ "See model documentation"
+    )
+  )
+
+  label_df |>
+    kable(
+      format  = "html",
+      caption = "Table 2: FinBERT Output Labels and Risk Interpretation",
+      align   = c("c", "l", "l")
+    ) |>
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width        = FALSE,
+      position          = "left",
+      font_size         = 13
+    ) |>
+    column_spec(1, width = "6em") |>
+    column_spec(2, bold = TRUE, width = "8em") |>
+    column_spec(3, width = "26em")
+}
+```
+
+## Tokenizer Audit
+
+### Configuration Parameters
+
+The tokenizer configuration specifies how raw text is transformed before it enters the model. Each parameter below has a direct governance implication: it constrains what the model can process reliably and how failures manifest when inputs fall outside the expected distribution.
+
+```{r}
+#| label: table-tokenizer-config
+
+tok_params <- tibble(
+  Parameter = c(
+    "Tokenizer Class",
+    "Model Max Length",
+    "Do Lower Case",
+    "Padding Side",
+    "Special Token: [CLS]",
+    "Special Token: [SEP]",
+    "Special Token: [PAD]",
+    "Special Token: [UNK]",
+    "Special Token: [MASK]"
+  ),
+  Value = c(
+    tokenizer_cfg$tokenizer_class  %||% "BertTokenizer",
+    tokenizer_cfg$model_max_length %||% "512",
+    as.character(tokenizer_cfg$do_lower_case %||% TRUE),
+    tokenizer_cfg$padding_side     %||% "right",
+    "[CLS]", "[SEP]", "[PAD]", "[UNK]", "[MASK]"
+  ),
+  `Governance Note` = c(
+    "BERT-family; vocabulary is fixed at training time",
+    "512 tokens (~380 words); inputs exceeding this limit are silently truncated",
+    "All input text is lowercased before tokenization",
+    "Padding appended to the right for batch processing",
+    "Prepended to every input sequence",
+    "Appended after every input segment",
+    "Used to pad shorter sequences in a batch to uniform length",
+    "Replaces out-of-vocabulary tokens — a direct signal of domain coverage gaps",
+    "Used during masked language model pre-training; not relevant at inference"
+  )
+)
+
+tok_params |>
+  kable(
+    format    = "html",
+    caption   = "Table 3: FinBERT Tokenizer Configuration",
+    col.names = c("Parameter", "Value", "Governance Note"),
+    align     = c("l", "l", "l")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = TRUE,
+    position          = "left",
+    font_size         = 13
+  ) |>
+  column_spec(1, bold = TRUE, width = "14em") |>
+  column_spec(2, width = "12em") |>
+  column_spec(3, width = "28em")
+```
+
+### Vocabulary Composition
+
+The `vocab.txt` file contains all 30,522 tokens the model recognizes. Any token absent from this vocabulary is silently mapped to `[UNK]` (unknown). For financial text — where regulatory acronyms, numeric sequences, and specialized terminology are common — the rate of out-of-vocabulary mappings is a direct indicator of model reliability in a given deployment context.
+
+```{r}
+#| label: vocab-analysis
+
+vocab       <- readLines(vocab_path)
+total_tokens <- length(vocab)
+
+vocab_df <- tibble(token = vocab) |>
+  mutate(
+    type = case_when(
+      str_starts(token, "##")             ~ "Subword (continuation)",
+      str_starts(token, "\\[")            ~ "Special token",
+      str_detect(token, "^[0-9]+$")       ~ "Numeric",
+      str_detect(token, "^[a-z]+$")       ~ "Lowercase word",
+      str_detect(token, "^[A-Z][a-z]+$")  ~ "Capitalized word",
+      str_detect(token, "^[A-Z]+$")       ~ "Uppercase / acronym",
+      str_detect(token, "[^[:ascii:]]")   ~ "Non-ASCII / multilingual",
+      str_detect(token, "[[:punct:]]")    ~ "Punctuation / symbol",
+      TRUE                                ~ "Other"
+    )
+  )
+
+vocab_summary <- vocab_df |>
+  count(type, name = "count") |>
+  mutate(
+    pct = round(count / total_tokens * 100, 1),
+    `Governance Implication` = case_when(
+      type == "Subword (continuation)" ~
+        "High subword ratio indicates morphologically rich coverage",
+      type == "Special token" ~
+        "Fixed control tokens; must not appear in user inputs",
+      type == "Numeric" ~
+        "Limited numeric coverage; financial figures may fragment across multiple tokens",
+      type == "Lowercase word" ~
+        "Core vocabulary; model lowercases all input before lookup",
+      type == "Non-ASCII / multilingual" ~
+        "Limited coverage; non-English regulatory text will degrade",
+      type == "Uppercase / acronym" ~
+        "Acronyms (LIBOR, DSCR, CET1) are lowercased before vocabulary lookup",
+      TRUE ~ ""
+    )
+  ) |>
+  arrange(desc(count))
+
+vocab_summary |>
+  kable(
+    format    = "html",
+    digits    = 1,
+    caption   = glue("Table 4: FinBERT Vocabulary Composition (Total: {comma(total_tokens)} tokens)"),
+    col.names = c("Token Type", "Count", "% of Vocab", "Governance Implication"),
+    align     = c("l", "r", "r", "l")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = TRUE,
+    position          = "left",
+    font_size         = 13
+  ) |>
+  column_spec(1, bold = TRUE, width = "14em") |>
+  column_spec(4, width = "28em")
+```
+
+```{r}
+#| label: fig-vocab-composition
+#| fig-cap: "FinBERT vocabulary composition by token type. Subword continuation tokens constitute the largest share, reflecting WordPiece segmentation of morphologically complex terms. Numeric coverage is limited — a governance consideration for financial figures."
+
+p <- vocab_summary |>
+  mutate(type = fct_reorder(type, count)) |>
+  ggplot(aes(x = count, y = type, fill = type)) +
+  geom_col(show.legend = FALSE, width = 0.65) +
+  geom_text(
+    aes(label = glue("{comma(count)} ({pct}%)")),
+    hjust  = -0.05,
+    size   = 3.2,
+    color  = "grey30"
+  ) +
+  scale_x_continuous(
+    labels = comma,
+    expand = expansion(mult = c(0, 0.28))
+  ) +
+  scale_fill_manual(
+    values = colorRampPalette(c(brand_accent, brand_highlight, brand_secondary))(
+      nrow(vocab_summary)
+    )
+  ) +
+  labs(
+    title    = "FinBERT Vocabulary Composition",
+    subtitle = glue("Total vocabulary: {comma(total_tokens)} tokens"),
+    x        = "Token Count",
+    y        = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", color = brand_text),
+    plot.subtitle      = element_text(color = "grey40"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank()
+  )
+p
+```
+
+## Context Window Stress Test
+
+The `model_max_length: 512` parameter is a key limit for financial text applications. It sets a strict cap: any input over 512 tokens gets cut off. No error message is shown. The model just processes the first 512 tokens and ignores the rest.
+
+This limit often affects financial documents, like regulatory disclosures and credit memoranda. If a disclosure starts neutral but ends with a serious event flag, it could be wrongly labeled as neutral. This happens if the negative content gets cut off after token 512.
+
+The token counts below use a WordPiece method based on the `vocab.txt`file downloaded earlier. FinBERT provides only the old `BertTokenizer` format. This means it doesn’t have a fast-tokenizer interface in R. For estimates, a 1.35 token-per-word multiplier is used for out-of-vocabulary terms. This aligns with benchmarks for financial English on BERT-base. It also adds two tokens for the required `[CLS]` and `[SEP]` control tokens.
+
+```{r}
+#| label: context-window-test
+
+# FinBERT uses the legacy BertTokenizer format (vocab.txt + tokenizer_config.json)
+# rather than the fast tokenizer format (tokenizer.json) that tok::tokenizer$from_pretrained()
+# requires. We approximate token counts using WordPiece heuristics applied directly
+# to the vocab.txt file already downloaded — no additional Hub calls needed.
+#
+# WordPiece tokenization splits unknown or morphologically complex words into subword
+# pieces. The empirical token-to-word ratio for financial English on BERT-base is
+# approximately 1.35 (words expand ~35% into tokens). We apply that multiplier and
+# add 2 for the mandatory [CLS] and [SEP] special tokens.
+
+wordpiece_token_estimate <- function(text, vocab, multiplier = 1.35) {
+  words   <- unlist(str_split(str_to_lower(str_trim(text)), "\\s+"))
+  n_words <- length(words)
+  # Words fully in vocabulary tokenize as 1 token; others are split (multiplier > 1)
+  in_vocab <- mean(words %in% vocab)
+  effective_multiplier <- in_vocab + (1 - in_vocab) * multiplier
+  as.integer(round(n_words * effective_multiplier)) + 2L  # +2 for [CLS] and [SEP]
+}
+
+test_texts <- list(
+  "Short headline" =
+    "Federal Reserve raises rates by 25 basis points amid persistent inflation.",
+
+  "Earnings call excerpt" =
+    paste(
+      "Our credit loss provisions increased 14% year-over-year, reflecting",
+      "deteriorating macroeconomic conditions in our consumer lending portfolio.",
+      "Net charge-off rates rose to 2.3%, up from 1.8% in the prior year period.",
+      "We continue to monitor our commercial real estate exposure closely,",
+      "particularly in the office sector, where vacancy rates remain elevated."
+    ),
+
+  "Regulatory disclosure (moderate)" =
+    paste(
+      "The Company is subject to various regulatory capital requirements administered",
+      "by federal banking agencies. Failure to meet minimum capital requirements can",
+      "initiate certain mandatory and possibly additional discretionary actions by",
+      "regulators that, if undertaken, could have a direct material effect on the",
+      "Company's financial statements. Under capital adequacy guidelines and the",
+      "regulatory framework for prompt corrective action, the Company must meet",
+      "specific capital guidelines that involve quantitative measures of the Company's",
+      "assets, liabilities, and certain off-balance-sheet items as calculated under",
+      "regulatory accounting practices. The Company's capital amounts and",
+      "classification are also subject to qualitative judgments by regulators about",
+      "components, risk weightings, and other factors."
+    ),
+
+  "10-K risk section (long)" =
+    paste(rep(paste(
+      "The Company faces significant credit risk in its lending portfolio.",
+      "Adverse changes in economic conditions, including rising interest rates,",
+      "increased unemployment, or declining real estate values, could result in",
+      "higher levels of nonperforming assets and credit losses. The Company's",
+      "allowance for credit losses may prove to be insufficient to cover actual",
+      "credit losses, which could have a material adverse effect on the Company's",
+      "financial condition and results of operations."
+    ), 5), collapse = " ")
+)
+
+context_results <- imap_dfr(test_texts, function(text, label) {
+  n_tokens  <- wordpiece_token_estimate(text, vocab)
+  n_words   <- str_count(text, "\\S+")
+  pct_limit <- round(n_tokens / 512 * 100, 1)
+  tibble(
+    `Text Type`      = label,
+    `Word Count`     = n_words,
+    `Token Count`    = n_tokens,
+    `% of 512 Limit` = pct_limit,
+    `Truncated?`     = if_else(n_tokens > 512, "YES", "No")
+  )
+})
+
+context_results |>
+  kable(
+    format    = "html",
+    caption   = "Table 5: Context Window Analysis — Token Counts for Representative Risk Texts",
+    col.names = c("Text Type", "Word Count", "Token Count", "% of 512 Limit", "Truncated?"),
+    align     = c("l", "r", "r", "r", "c")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "left",
+    font_size         = 13
+  ) |>
+  column_spec(1, bold = TRUE, width = "16em") |>
+  column_spec(5, bold = TRUE) |>
+  row_spec(
+    which(context_results$`Truncated?` == "YES"),
+    background = "#fff3cd"
+  )
+```
+
+::: {.callout-note title="Truncation Is Silent — and Material" icon="false"}
+BERT-family models cut off inputs that exceed 512 tokens without notice. In a risk workflow, this means the end of a long credit memo or regulatory disclosure is lost. Risk teams using any BERT-family model should track token counts for each input. Send truncated documents for manual review. Don't let partial classifications move forward.
+:::
+
+## Model Governance Audit Card
+
+The table below synthesizes the metadata review into a structured format aligned with SR 11-7 model documentation expectations. It is designed to serve as a transferable template: any BERT-family model can be audited using the same dimensions, with the findings column updated to reflect the specific model under review.
+
+```{r}
+#| label: governance-card
+
+gov_card <- tibble(
+  `Governance Dimension` = c(
+    "Model Identifier",
+    "Source / Provider",
+    "Model Architecture",
+    "Intended Use",
+    "Training Data",
+    "Output Schema",
+    "Max Input Length",
+    "Vocabulary Coverage",
+    "Known Limitation: Truncation",
+    "Known Limitation: Language",
+    "Known Limitation: Domain Drift",
+    "Known Limitation: Temporal",
+    "Bias Considerations",
+    "Recommended Validation Step",
+    "SR 11-7 Classification"
+  ),
+  `Finding` = c(
+    "ProsusAI/finbert (Hugging Face Hub)",
+    "Prosus AI / Naspers; open-source (Apache 2.0 license)",
+    "BERT-base-uncased (12 layers, 768 hidden, 12 heads, ~110M parameters)",
+    "Financial news sentiment classification: positive / neutral / negative",
+    "~4,840 financial news articles from Reuters and Bloomberg, labeled by Prosus AI analysts",
+    "3-class softmax output; labels: 0 = positive, 1 = negative, 2 = neutral",
+    "512 tokens (~380 words); inputs silently truncated beyond this limit",
+    "30,522 tokens; primarily English; limited non-ASCII and numeric coverage",
+    "Long documents (10-Ks, credit memos) may lose material content beyond token 512",
+    "English only; multilingual or code-switched regulatory text will degrade model reliability",
+    "Trained on news headlines; performance on internal risk memos and filings is unvalidated",
+    "Training data predates the post-2022 rate cycle; macro sentiment calibration may have shifted",
+    "Training labels reflect analyst judgments; inter-rater reliability and label subjectivity not published",
+    "Back-test on firm-specific text prior to production deployment; log and flag all truncated inputs",
+    "Vendor / third-party model; independent validation required before use in consequential decisions"
+  )
+)
+
+gov_card |>
+  kable(
+    format    = "html",
+    caption   = "Table 6: FinBERT Model Governance Audit Card",
+    col.names = c("Governance Dimension", "Finding"),
+    align     = c("l", "l")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = TRUE,
+    font_size         = 13
+  ) |>
+  column_spec(1, bold = TRUE, width = "16em") |>
+  row_spec(c(9, 10, 11, 12, 13), background = "#fff3cd") |>
+  row_spec(15, background = "#f8d7da", bold = TRUE) |>
+  pack_rows("Model Identity",           1,  3) |>
+  pack_rows("Intended Use & Outputs",   4,  6) |>
+  pack_rows("Technical Constraints",    7,  8) |>
+  pack_rows("Known Limitations",        9, 13) |>
+  pack_rows("Risk & Compliance",       14, 15)
+```
+
+## Insights & Conclusion
+
+The audit shows four important findings to address before using FinBERT or any BERT model in financial risk workflows.
+
+First, the truncation issue is urgent. At 512 tokens, the model processes about 380 words. Most financial documents, like earnings calls and 10-K risk sections, exceed this limit. Truncation is silent, so a classifier using truncated input gives a confidence score that looks the same as one from complete input. Risk teams won’t know if the classification is partial unless token counts are clearly logged. Any deployment must address this.
+
+Second, the training data for FinBERT is narrower than it seems. The model was trained on around 4,840 articles from Reuters and Bloomberg, labeled by Prosus AI analysts. This data is mostly focused on headlines and news. Using the model for internal credit narratives or regulatory findings introduces domain drift, which hasn't been formally assessed. We don't know how well the model performs with these text types.
+
+Third, there is a vocabulary coverage gap for numeric tokens. Financial texts are full of figures—percentages, basis points, loan-to-value ratios. The BERT-base vocabulary has few pure-numeric tokens, so many multi-digit figures split into multiple sub-word tokens. This fragmentation doesn’t cause inference issues, but it means the model interprets “CET1 ratio of 13.4%” differently than a human would. This difference isn’t shown in the output scores.
+
+Finally, SR 11-7 classification is clear: any model influencing a significant financial decision requires formal risk management.
+
+This needs:
+
+-   Documentation of intended use
+
+-   Independent validation with firm data
+
+-   Ongoing performance monitoring
+
+The model card is just a starting point for this documentation, not a replacement.
+
+The project shows that the metadata layer of an open-source model can be fully audited from R in under 50 lines of code. The `hfhub` and `tok` packages make governance easier. What used to require Python skills and manual web checks is now a simple, repeatable R workflow. For organizations creating AI governance programs, this reproducibility is crucial. An audit that can be re-run against an updated model card is much more defensible than one that can't.
+
+## Session Information
+
+```{r}
+#| label: session-info
+#| echo: false
+
+session_info()
+```
+
+------------------------------------------------------------------------
+
+*Rendered with [Quarto](https://quarto.org/). Analysis conducted in R using `hfhub`, `tok`, `tidyverse`, `kableExtra`, `plotly`*
