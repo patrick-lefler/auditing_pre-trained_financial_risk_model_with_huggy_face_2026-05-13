@@ -383,16 +383,15 @@ vocab_summary |>
 
 ```{r}
 #| label: fig-vocab-composition
-#| fig-cap: "FinBERT vocabulary composition by token type. Subword continuation tokens constitute the largest share, reflecting WordPiece segmentation of morphologically complex terms. Numeric coverage is limited — a governance consideration for financial figures."
 
-p <- vocab_summary |>
+vocab_summary |>
   mutate(type = fct_reorder(type, count)) |>
   ggplot(aes(x = count, y = type, fill = type)) +
   geom_col(show.legend = FALSE, width = 0.65) +
   geom_text(
     aes(label = glue("{comma(count)} ({pct}%)")),
     hjust  = -0.05,
-    size   = 3.2,
+    size   = 3.5,
     color  = "grey30"
   ) +
   scale_x_continuous(
@@ -408,17 +407,21 @@ p <- vocab_summary |>
     title    = "FinBERT Vocabulary Composition",
     subtitle = glue("Total vocabulary: {comma(total_tokens)} tokens"),
     x        = "Token Count",
-    y        = NULL
+    y        = NULL,
+    caption = NULL,
+      tag = NULL
   ) +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 14) +
   theme(
-    plot.title         = element_text(face = "bold", color = brand_text),
-    plot.subtitle      = element_text(color = "grey40"),
+    plot.title = element_text(face = "bold", size = 18, color = brand_text),
+    plot.subtitle = element_text(color = "grey40", size = 14),
+    axis.title = element_text(size = 12),
     panel.grid.major.y = element_blank(),
-    panel.grid.minor   = element_blank()
+    panel.grid.minor.y   = element_blank()
   )
-p
 ```
+
+In the figure above, subword continuation tokens constitute the largest share, reflecting WordPiece segmentation of morphologically complex terms. Numeric coverage is limited — a governance consideration for financial figures.
 
 ## Context Window Stress Test
 
