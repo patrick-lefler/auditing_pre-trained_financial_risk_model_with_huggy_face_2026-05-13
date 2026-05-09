@@ -45,7 +45,7 @@ The function returns the local file path, which can then be passed to any standa
 
 ### tok — Tokenization in R
 
-The tok package provides R bindings for the Hugging Face tokenizers Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: tok exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.
+The `tok` package provides R bindings for the Hugging Face tokenizers Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: tok exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.
 
 ![](images/Code-2_load_the_tokenizer_from_the_hub.png)
 

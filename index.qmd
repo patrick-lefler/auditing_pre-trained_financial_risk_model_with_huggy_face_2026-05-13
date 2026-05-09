@@ -17,7 +17,7 @@ format:
     code-fold: true
     code-copy: true
     code-overflow: wrap
-    code-tools: false
+    code-tools: true
     code-summary: "Display code"
     df-print: kable
     embed-math: true
@@ -127,7 +127,7 @@ The function returns the local file path, which can then be passed to any standa
 
 ### `tok` — Tokenization in R
 
-The `tok` package provides R bindings for the Hugging Face `tokenizers` Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: `tok` exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.
+The `tok` package provides R bindings for the Hugging Face tokenizers Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: `tok` exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.
 
 ``` r
 # Load the tokenizer from the Hub
@@ -318,7 +318,7 @@ tok_params |>
 
 ### Vocabulary Composition
 
-The `vocab.txt` file contains all 30,522 tokens the model recognizes. Any token absent from this vocabulary is silently mapped to `[UNK]` (unknown). For financial text — where regulatory acronyms, numeric sequences, and specialized terminology are common — the rate of out-of-vocabulary mappings is a direct indicator of model reliability in a given deployment context.
+The `vocab.txt` file contains all 30,522 tokens the model recognizes. Any token absent from this vocabulary is silently mapped to \[UNK\] (unknown). For financial text — where regulatory acronyms, numeric sequences, and specialized terminology are common — the rate of out-of-vocabulary mappings is a direct indicator of model reliability in a given deployment context.
 
 ```{r}
 #| label: vocab-analysis

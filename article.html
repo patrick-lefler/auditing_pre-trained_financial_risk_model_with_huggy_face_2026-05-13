@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.26">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>article</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="article_files/libs/clipboard/clipboard.min.js"></script>
+<script src="article_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="article_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="article_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="article_files/libs/quarto-html/popper.min.js"></script>
+<script src="article_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="article_files/libs/quarto-html/anchor.min.js"></script>
+<link href="article_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="article_files/libs/quarto-html/quarto-syntax-highlighting-f194567e5c6efeb013b28392ff62c8b4.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="article_files/libs/quarto-html/quarto-syntax-highlighting-dark-fee303ae6e2651b1828198bac5dac9d1.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="article_files/libs/quarto-html/quarto-syntax-highlighting-f194567e5c6efeb013b28392ff62c8b4.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="article_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="article_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="article_files/libs/bootstrap/bootstrap-38d41b837b96a1800d805bf97ac3ef1b.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="article_files/libs/bootstrap/bootstrap-dark-38d41b837b96a1800d805bf97ac3ef1b.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="article_files/libs/bootstrap/bootstrap-38d41b837b96a1800d805bf97ac3ef1b.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<section id="auditing-a-pre-trained-financial-risk-model-with-huggy-face" class="level1">
+<h1>Auditing a Pre-Trained Financial Risk Model With Huggy Face</h1>
+<p><em>A Practical Introduction to Model Governance Using R packages hfhub &amp; tok</em></p>
+<section id="introduction" class="level2">
+<h2 class="anchored" data-anchor-id="introduction">Introduction</h2>
+<p>Every organization using a third-party AI model in risk or compliance faces a key question: what exactly did we approve? The model card is usually the main answer. It is the documentation published with open-source models on sites like Hugging Face. The card details training data, intended use, known limitations, and output schema. For organizations under SR 11-7, NYDFS model risk guidance, or the NIST AI Risk Management Framework, this documentation is essential. It serves as the baseline for independent validation.</p>
+<p>The issue is that most risk practitioners view model cards as static web pages. They are reviewed manually and inconsistently. Two R packages, hfhub and tok, change this. They allow practitioners to pull model artifacts programmatically. They can also parse configuration files and create a structured audit record. This record can be reproduced, versioned, and embedded directly into governance documents.</p>
+<p>This project illustrates the complete workflow using FinBERT (ProsusAI/finbert) as an example. FinBERT is a BERT-based sentiment classifier fine-tuned on financial news. It is one of the most cited open-source models in fintech AI and is used in firms for credit risk, market surveillance, and regulatory text analysis. Its wide use makes it a strong teaching case. The model is well-known, its limits are clear, and the governance issues it raises relate to any BERT-family model a risk team might face.</p>
+<p>This project focuses on a metadata audit. It looks at:</p>
+<ul>
+<li><p>Architecture parameters</p></li>
+<li><p>Tokenizer configuration</p></li>
+<li><p>Vocabulary composition</p></li>
+<li><p>Context window constraints</p></li>
+</ul>
+<p>No inference is performed, no GPU is needed, and the Python ecosystem is not required. The entire workflow runs in R.</p>
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Understanding Hugging Face — And How It Differs from Gemini or Claude
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This is an example of a callout where the icon is removed. Hugging Face is an open-source model repository and machine learning platform. It is not just one AI system; it provides distribution infrastructure. Gemini (Google) and Claude (Anthropic) are different. You can only access them through their vendor APIs. Hugging Face has thousands of models. They come from universities, companies, and independent researchers. These models are available for direct download, inspection, and often modification.</p>
+<p>This difference matters for governance. With a commercial API, the model is a black box: inputs go in, and outputs come out, but you can’t see the architecture, training data, or configuration. You can find the configuration files, tokenizer, and often the full model weights for a Hugging Face model available to the public. This transparency allows for structured metadata audits, making tools like hfhub and tok possible as R packages.</p>
+<p>The practical differences also affect deployment. Gemini and Claude provide inference-as-a-service. The model operates on the vendor’s infrastructure. Users pay for each token used. In contrast, organizations can download and run Hugging Face models on their own infrastructure. They can also evaluate these models without running them, as this project shows. This distinction impacts costs, latency, and data residency for financial institutions. It also shifts compliance responsibilities. When a firm uses the Claude API, it follows Anthropic’s acceptable use policy. When a firm uses FinBERT internally, it takes on all model risk management responsibility under SR 11-7. There is no vendor support. The governance requirements differ significantly.</p>
+<p>For risk practitioners, Hugging Face is valuable in three main ways. First, it serves as an audit target, helping document a model already in use within the organization. Second, it acts as a benchmarking resource. You can find domain-specific models for credit risk, regulatory text classification, and financial entity recognition on the Hub. These can be evaluated against internal data before any procurement or build decisions. Third, it provides research signals. Model cards, citation counts, and community talks on Hugging Face show popular modeling methods in finance. This often happens 12 to 18 months before those approaches appear in vendor product announcements. A risk team that monitors the Hub regularly is better equipped to anticipate governance questions that may arise.</p>
+</div>
+</div>
+</section>
+<section id="background-the-r-packages" class="level2">
+<h2 class="anchored" data-anchor-id="background-the-r-packages">Background: The R Packages</h2>
+<section id="hfhub-fetching-from-hugging-face-hub" class="level3">
+<h3 class="anchored" data-anchor-id="hfhub-fetching-from-hugging-face-hub">hfhub — Fetching from Hugging Face Hub</h3>
+<p>The hfhub package exposes a single core function: hub_download(). Given a repository identifier and a file path, it retrieves the specified artifact from Hugging Face Hub and stores it in a local cache. The caching layout mirrors the Python huggingface_hub library, which means cached files can be shared across R and Python environments — a practical consideration for teams operating mixed-language pipelines.</p>
+<p><img src="images/Code-1_fetch_the_model_configuration_file.png" class="img-fluid"></p>
+<p>The function returns the local file path, which can then be passed to any standard R parsing tool. In this project, that means jsonlite::fromJSON() for the JSON configuration files and base::readLines() for the plain-text vocabulary.</p>
+</section>
+<section id="tok-tokenization-in-r" class="level3">
+<h3 class="anchored" data-anchor-id="tok-tokenization-in-r">tok — Tokenization in R</h3>
+<p>The <code>tok</code> package provides R bindings for the Hugging Face tokenizers Rust library. Its primary function is to convert raw text into the integer token sequences that transformer models consume. For governance purposes, the more relevant capability is inspection: tok exposes the tokenizer configuration directly, allowing a practitioner to verify vocabulary size, maximum sequence length, special token definitions, and case normalization behavior — all parameters that govern what the model can and cannot process.</p>
+<p><img src="images/Code-2_load_the_tokenizer_from_the_hub.png" class="img-fluid"></p>
+<p>Neither package requires model inference. Both operate entirely on the metadata and configuration layer — which is precisely the layer that governance review demands.</p>
+</section>
+</section>
+<section id="downloading-model-artifacts" class="level2">
+<h2 class="anchored" data-anchor-id="downloading-model-artifacts">Downloading Model Artifacts</h2>
+<p>Three files are retrieved from the FinBERT repository. The config.json file defines model architecture and output labels. The tokenizer_config.json file specifies how input text is processed before it reaches the model. The vocab.txt file contains the complete 30,522-token vocabulary — sampled and analyzed below, not printed in full.</p>
+<p><img src="images/Code-3_downloading_model_artifacts.png" class="img-fluid"></p>
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Caching and Reproducibility
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>hub_download() caches files on first retrieval. Subsequent calls return the cached path with no network request. For production governance workflows, artifacts should be pinned to a specific commit hash — not pulled from main — to ensure that audit records remain reproducible when the model card is updated.</p>
+</div>
+</div>
+<p><img src="images/Code-4_model_architecture.png" class="img-fluid"></p>
+</section>
+<section id="architecture-parameters" class="level2">
+<h2 class="anchored" data-anchor-id="architecture-parameters">Architecture Parameters</h2>
+<p>The configuration file records the structural parameters of the underlying BERT-base architecture. These parameters define the model’s representational capacity and, for governance purposes, its resource footprint in any deployment context.</p>
+<p><img src="images/Table-1_FinBERT_Architecture_Parameter.png" class="img-fluid"></p>
+<section id="classification-labels" class="level3">
+<h3 class="anchored" data-anchor-id="classification-labels">Classification Labels</h3>
+<p>FinBERT produces a three-class sentiment output. The label schema below is what the model returns — understanding it is a prerequisite for any downstream risk workflow that consumes model outputs.</p>
+<p><img src="images/Table-2_FinBERT_Output_Labels_and_Risk_Interpretation.png" class="img-fluid"></p>
+</section>
+</section>
+<section id="tokenizer-audit" class="level2">
+<h2 class="anchored" data-anchor-id="tokenizer-audit">Tokenizer Audit</h2>
+<section id="configuration-parameters" class="level3">
+<h3 class="anchored" data-anchor-id="configuration-parameters">Configuration Parameters</h3>
+<p>The tokenizer configuration specifies how raw text is transformed before it enters the model. Each parameter below has a direct governance implication: it constrains what the model can process reliably and how failures manifest when inputs fall outside the expected distribution.</p>
+<p><img src="images/Table-3_FinBERT_Tokenizer_Configuration.png" class="img-fluid"></p>
+</section>
+<section id="vocabulary-composition" class="level3">
+<h3 class="anchored" data-anchor-id="vocabulary-composition">Vocabulary Composition</h3>
+<p>The <code>vocab.txt file</code> contains all 30,522 tokens the model recognizes. Any token absent from this vocabulary is silently mapped to <code>[UNK]</code> (unknown). For financial text — where regulatory acronyms, numeric sequences, and specialized terminology are common — the rate of out-of-vocabulary mappings is a direct indicator of model reliability in a given deployment context.</p>
+<p><img src="images/Table-4_FinBERT_Vocabulary_Composition.png" class="img-fluid"></p>
+<p><img src="images/Figure-1_FinBERT_Vocabulary_Composition_by_Token_Type.png" class="img-fluid"></p>
+<p>In the figure above, subword continuation tokens constitute the largest share, reflecting WordPiece segmentation of morphologically complex terms. Numeric coverage is limited — a governance consideration for financial figures.</p>
+</section>
+</section>
+<section id="context-window-stress-test" class="level2">
+<h2 class="anchored" data-anchor-id="context-window-stress-test">Context Window Stress Test</h2>
+<p>The <code>model_max_length: 512</code> parameter is a key limit for financial text applications. It sets a strict cap: any input over 512 tokens gets cut off. No error message is shown. The model just processes the first 512 tokens and ignores the rest.</p>
+<p>This limit often affects financial documents, like regulatory disclosures and credit memoranda. If a disclosure starts neutral but ends with a serious event flag, it could be wrongly labeled as neutral. This happens if the negative content gets cut off after token 512.</p>
+<p>The token counts below use a WordPiece method based on the <code>vocab.txt</code> file downloaded earlier. FinBERT provides only the old <code>BertTokenizer</code> format. This means it doesn’t have a fast-tokenizer interface in R. For estimates, a 1.35 token-per-word multiplier is used for out-of-vocabulary terms. This aligns with benchmarks for financial English on BERT-base. It also adds two tokens for the required <code>[CLS]</code> and <code>[SEP]</code> control tokens.</p>
+<p><img src="images/Table-5_Context_Window_Analysis.png" class="img-fluid"></p>
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Truncation is silent; and material
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>BERT-family models cut off inputs that exceed 512 tokens without notice. In a risk workflow, this means the end of a long credit memo or regulatory disclosure is lost. Risk teams using any BERT-family model should track token counts for each input. Send truncated documents for manual review. Don’t let partial classifications move forward.</p>
+</div>
+</div>
+</section>
+<section id="model-governance-audit-card" class="level2">
+<h2 class="anchored" data-anchor-id="model-governance-audit-card">Model Governance Audit Card</h2>
+<p>The table below synthesizes the metadata review into a structured format aligned with SR 11-7 model documentation expectations. It is designed to serve as a transferable template: any BERT-family model can be audited using the same dimensions, with the findings column updated to reflect the specific model under review.</p>
+<p><img src="images/Table-6_FinBERT_Model_Governance_Audit_Card.png" class="img-fluid"></p>
+</section>
+<section id="insights-conclusion" class="level2">
+<h2 class="anchored" data-anchor-id="insights-conclusion">Insights &amp; Conclusion</h2>
+<p>The audit shows four important findings to address before using FinBERT or any BERT model in financial risk workflows.</p>
+<p>First, the truncation issue is urgent. At 512 tokens, the model processes about 380 words. Most financial documents, like earnings calls and 10-K risk sections, exceed this limit. Truncation is silent, so a classifier using truncated input gives a confidence score that looks the same as one from complete input. Risk teams won’t know if the classification is partial unless token counts are clearly logged. Any deployment must address this.</p>
+<p>Second, the training data for FinBERT is narrower than it seems. The model was trained on around 4,840 articles from Reuters and Bloomberg, labeled by Prosus AI analysts. This data is mostly focused on headlines and news. Using the model for internal credit narratives or regulatory findings introduces domain drift, which hasn’t been formally assessed. We don’t know how well the model performs with these text types.</p>
+<p>Third, there is a vocabulary coverage gap for numeric tokens. Financial texts are full of figures—percentages, basis points, loan-to-value ratios. The BERT-base vocabulary has few pure-numeric tokens, so many multi-digit figures split into multiple sub-word tokens. This fragmentation doesn’t cause inference issues, but it means the model interprets “CET1 ratio of 13.4%” differently than a human would. This difference isn’t shown in the output scores.</p>
+<p>Finally, SR 11-7 classification is clear: any model influencing a significant financial decision requires formal risk management.</p>
+<p>This needs:</p>
+<ul>
+<li><p>Documentation of intended use</p></li>
+<li><p>Independent validation with firm data</p></li>
+<li><p>Ongoing performance monitoring</p></li>
+</ul>
+<p>The model card is just a starting point for this documentation, not a replacement.</p>
+<p>The project shows that the metadata layer of an open-source model can be fully audited from R in under 50 lines of code. The hfhub and tok packages make governance easier. What used to require Python skills and manual web checks is now a simple, repeatable R workflow. For organizations creating AI governance programs, this reproducibility is crucial. An audit that can be re-run against an updated model card is much more defensible than one that can’t.</p>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
