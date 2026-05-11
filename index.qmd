@@ -1,5 +1,5 @@
 ---
-title: "Auditing a Pre-Trained Financial Risk Model With Huggy Face"
+title: "Auditing a Pre-Trained Hugging Face Financial Risk Model"
 subtitle: "A Practical Introduction to Model Governance Using R packages hfhub & tok"
 author: "Patrick Lefler"
 abstract: 
@@ -11,7 +11,7 @@ abstract:
   few practitioners have the tools to interrogate it programmatically.  </br> </br>
    This project introduces two R packages — hfhub and tok — and applies them to a structured metadata    audit of FinBERT (ProsusAI/finbert), a BERT-based sentiment classifier widely deployed in fintech AI pipelines. Using hub_download() and tok::tokenizer, the analysis retrieves and parses model architecture parameters, tokenizer configuration, vocabulary composition, and context window constraints — without inference code, a GPU, or a Python dependency. </br> </br>
    The result is a governance audit card aligned to SR 11-7 documentation expectations. The project is designed for risk practitioners with intermediate R proficiency who need a reproducible, board-ready template for third-party model due diligence.
-date: "2026-05-08"
+date: "2026-05-11"
 format:
   html:
     code-fold: true
@@ -156,7 +156,7 @@ cat("vocab.txt             :", vocab_path, "\n")
 ```
 
 ::: {.callout-note title="Caching and Reproducibility" icon="false"}
-`hub_download()` caches files on first retrieval. Subsequent calls return the cached path with no network request. For production governance workflows, artifacts should be pinned to a specific commit hash — not pulled from `main` — to ensure that audit records remain reproducible when the model card is updated.
+`hub_download()` caches files on first retrieval. Subsequent calls return the cached path with no network request. For production governance workflows, artifacts should be pinned to a specific commit hash — not pulled from main — to ensure that audit records remain reproducible when the model card is updated.
 :::
 
 ## Model Architecture
